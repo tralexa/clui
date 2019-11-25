@@ -33,13 +33,10 @@ type FileSelectDialog struct {
 	onClose func()
 
 	listBox *ListBox
-	edFile  *EditField
-	curDir  *Label
 }
 
 // Set the cursor the first item in the file list
 func (d *FileSelectDialog) selectFirst() {
-	d.listBox.SelectItem(0)
 }
 
 // Checks if the file name matches the mask. Empty mask, *, and *.* match any file
@@ -170,13 +167,6 @@ func (d *FileSelectDialog) pathDown(dir string) {
 //   * a directory is selected and option 'select directory' is set
 //   * a file is selected and option 'select directory' is not set
 func (d *FileSelectDialog) updateEditBox() {
-	s := d.listBox.SelectedItemText()
-	if s == "" || s == ".." ||
-		(strings.HasSuffix(s, string(os.PathSeparator)) && !d.selectDir) {
-		d.edFile.Clear()
-		return
-	}
-	d.edFile.SetTitle(strings.TrimSuffix(s, string(os.PathSeparator)))
 }
 
 // CreateFileSelectDialog creates a new file select dialog. It is useful if
@@ -195,7 +185,7 @@ func (d *FileSelectDialog) updateEditBox() {
 //       for file 'file save' case)
 func CreateFileSelectDialog(title, fileMasks, initPath string, selectDir, mustExist bool) *FileSelectDialog {
 	dlg := new(FileSelectDialog)
-	cw, ch := term.Size()
+	_, ch := term.Size()
 	dlg.selectDir = selectDir
 	dlg.mustExist = mustExist
 
@@ -219,8 +209,6 @@ func CreateFileSelectDialog(title, fileMasks, initPath string, selectDir, mustEx
 
 	dlg.currPath = initPath
 	dlg.detectPath()
-	dlg.curDir = CreateLabel(dlg.View, AutoSize, AutoSize, "", Fixed)
-	dlg.curDir.SetTextDisplay(AlignRight)
 
 	flist := CreateFrame(dlg.View, 1, 1, BorderNone, 1)
 	flist.SetPaddings(1, 1)
@@ -231,46 +219,11 @@ func CreateFileSelectDialog(title, fileMasks, initPath string, selectDir, mustEx
 	// text + edit field to enter name manually
 	fselected.SetPack(Vertical)
 	fselected.SetPaddings(1, 0)
-	CreateLabel(fselected, AutoSize, AutoSize, "Selected object:", 1)
-	dlg.edFile = CreateEditField(fselected, cw-22, "", 1)
 
 	// buttons at the right
 	blist := CreateFrame(flist, 1, 1, BorderNone, Fixed)
 	blist.SetPack(Vertical)
 	blist.SetPaddings(1, 1)
-	btnOpen := CreateButton(blist, AutoSize, AutoSize, "Open", Fixed)
-	btnSelect := CreateButton(blist, AutoSize, AutoSize, "Select", Fixed)
-	btnCancel := CreateButton(blist, AutoSize, AutoSize, "Cancel", Fixed)
-
-	btnCancel.OnClick(func(ev Event) {
-		WindowManager().DestroyWindow(dlg.View)
-		WindowManager().BeginUpdate()
-		dlg.Selected = false
-		closeFunc := dlg.onClose
-		WindowManager().EndUpdate()
-		if closeFunc != nil {
-			closeFunc()
-		}
-	})
-
-	btnSelect.OnClick(func(ev Event) {
-		WindowManager().DestroyWindow(dlg.View)
-		WindowManager().BeginUpdate()
-		dlg.Selected = true
-
-		dlg.FilePath = filepath.Join(dlg.currPath, dlg.listBox.SelectedItemText())
-		if dlg.edFile.Title() != "" {
-			dlg.FilePath = filepath.Join(dlg.currPath, dlg.edFile.Title())
-		}
-		_, err := os.Stat(dlg.FilePath)
-		dlg.Exists = !os.IsNotExist(err)
-
-		closeFunc := dlg.onClose
-		WindowManager().EndUpdate()
-		if closeFunc != nil {
-			closeFunc()
-		}
-	})
 
 	dlg.View.OnClose(func(ev Event) bool {
 		if dlg.result == DialogAlive {
@@ -288,95 +241,11 @@ func CreateFileSelectDialog(title, fileMasks, initPath string, selectDir, mustEx
 	dlg.listBox.OnSelectItem(func(ev Event) {
 		item := ev.Msg
 		if item == ".." {
-			btnSelect.SetEnabled(false)
-			btnOpen.SetEnabled(true)
-			return
-		}
-		isDir := strings.HasSuffix(item, string(os.PathSeparator))
-		if isDir {
-			btnOpen.SetEnabled(true)
-			if !dlg.selectDir {
-				btnSelect.SetEnabled(false)
-				return
-			}
-		}
-		if !isDir {
-			btnOpen.SetEnabled(false)
-		}
-
-		btnSelect.SetEnabled(true)
-		if (isDir && dlg.selectDir) || !isDir {
-			dlg.edFile.SetTitle(item)
-		} else {
-			dlg.edFile.Clear()
-		}
-	})
-
-	btnOpen.OnClick(func(ev Event) {
-		s := dlg.listBox.SelectedItemText()
-		if s != ".." && (s == "" || !strings.HasSuffix(s, string(os.PathSeparator))) {
 			return
 		}
 
-		if s == ".." {
-			dlg.pathUp()
-		} else {
-			dlg.pathDown(s)
-		}
 	})
 
-	dlg.edFile.OnChange(func(ev Event) {
-		s := ""
-		lowCurrText := strings.ToLower(dlg.listBox.SelectedItemText())
-		lowEditText := strings.ToLower(dlg.edFile.Title())
-		if !strings.HasPrefix(lowCurrText, lowEditText) {
-			itemIdx := dlg.listBox.PartialFindItem(dlg.edFile.Title(), false)
-			if itemIdx == -1 {
-				if dlg.mustExist {
-					btnSelect.SetEnabled(false)
-				}
-				return
-			}
-
-			s, _ = dlg.listBox.Item(itemIdx)
-			dlg.listBox.SelectItem(itemIdx)
-		} else {
-			s = dlg.listBox.SelectedItemText()
-		}
-
-		isDir := strings.HasSuffix(s, string(os.PathSeparator))
-		equal := strings.EqualFold(s, dlg.edFile.Title()) ||
-			strings.EqualFold(s, dlg.edFile.Title()+string(os.PathSeparator))
-
-		btnOpen.SetEnabled(isDir || s == "..")
-		if isDir {
-			btnSelect.SetEnabled(dlg.selectDir && (equal || !dlg.mustExist))
-			return
-		}
-
-		btnSelect.SetEnabled(equal || !dlg.mustExist)
-	})
-
-	dlg.edFile.OnKeyPress(func(key term.Key, c rune) bool {
-		if key == term.KeyArrowUp {
-			idx := dlg.listBox.SelectedItem()
-			if idx > 0 {
-				dlg.listBox.SelectItem(idx - 1)
-				dlg.updateEditBox()
-			}
-			return true
-		}
-		if key == term.KeyArrowDown {
-			idx := dlg.listBox.SelectedItem()
-			if idx < dlg.listBox.ItemCount()-1 {
-				dlg.listBox.SelectItem(idx + 1)
-				dlg.updateEditBox()
-			}
-			return true
-		}
-
-		return false
-	})
 
 	dlg.listBox.OnKeyPress(func(key term.Key) bool {
 		if key == term.KeyBackspace || key == term.KeyBackspace2 {
@@ -402,7 +271,6 @@ func CreateFileSelectDialog(title, fileMasks, initPath string, selectDir, mustEx
 		return false
 	})
 
-	dlg.curDir.SetTitle(dlg.currPath)
 	dlg.populateFiles()
 	dlg.selectFirst()
 

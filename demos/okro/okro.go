@@ -2,7 +2,7 @@ package okro
 
 
 import (
-	ui "github.com/VladimirMarkelov/clui"
+	ui "github.com/tralexa/clui"
 )
 
 type Okro struct {
